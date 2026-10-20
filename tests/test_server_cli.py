@@ -18,6 +18,8 @@ class ServerDefaultsTests(unittest.TestCase):
             [os.environ["HAOLIVE_TEST_SERVER"], "--help"], encoding="utf-8", timeout=30
         )
         self.assertIn("[--port 9797]", output)
+        number = (Path(__file__).resolve().parents[1] / "VERSION").read_text().strip()
+        self.assertIn("HaoLive.cpp " + number, output)
 
     @unittest.skipUnless(os.environ.get("HAOLIVE_TEST_SERVER"), "requires built server")
     def test_compiled_backends_include_cpu_and_are_known(self):

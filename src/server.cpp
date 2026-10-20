@@ -80,7 +80,7 @@ int integer_arg(const std::string& value, int min, int max) {
     return n;
 }
 void help() {
-    std::cout << "HaoLive.cpp 0.1.0\n"
+    std::cout << "HaoLive.cpp " << HAOLIVE_VERSION << "\n"
                  "Usage: haolive-server --model MODEL.gguf [--backend cpu|metal|vulkan|cuda]\n"
                  "       [--host 127.0.0.1] [--port 9797] [--threads 4] [--step-ms 160]\n"
                  "       [--max-audio-ms 30000] [--max-tokens 512] [--token SECRET]\n"
