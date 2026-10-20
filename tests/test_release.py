@@ -113,6 +113,9 @@ class BuildTests(unittest.TestCase):
             build.pe_imports(b"MZ")
         with tempfile.TemporaryDirectory() as temp:
             binary = Path(temp) / "haolive-server.exe"
+            binary.write_bytes(self.pe(b"WSOCK32.dll"))
+            with patch.object(build.subprocess, "check_output", side_effect=["haolive-server 1.2.3", '["cpu"]']):
+                build.audit(binary, "windows", "x64", "1.2.3")
             binary.write_bytes(self.pe(b"VCRUNTIME140.dll"))
             with patch.object(build.subprocess, "check_output", side_effect=["haolive-server 1.2.3", '["cpu"]']):
                 with self.assertRaisesRegex(ValueError, "non-system DLL"):

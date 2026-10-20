@@ -12,7 +12,7 @@ import sys
 from release_common import package, read_version
 
 ROOT = Path(__file__).resolve().parents[1]
-SYSTEM_DLLS = set("kernel32 user32 advapi32 bcrypt crypt32 ntdll ws2_32 iphlpapi secur32 ole32 oleaut32 shell32 shlwapi winmm version normaliz rpcrt4 dbghelp psapi setupapi mswsock ucrtbase msvcrt comdlg32 gdi32".split())
+SYSTEM_DLLS = set("kernel32 user32 advapi32 bcrypt crypt32 ntdll ws2_32 wsock32 iphlpapi secur32 ole32 oleaut32 shell32 shlwapi winmm version normaliz rpcrt4 dbghelp psapi setupapi mswsock ucrtbase msvcrt comdlg32 gdi32".split())
 
 
 def build_plan(root, directory, system, arch, jobs):
