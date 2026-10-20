@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
             std::string arg = argv[i];
             if (arg == "--help" || arg == "-h") { help(); return 0; }
             if (arg == "--version") { std::cout << "haolive-server " << HAOLIVE_VERSION << '\n'; return 0; }
-            if (arg == "--licenses") { std::cout << haolive_licenses; return 0; }
+            if (arg == "--licenses") { for (const auto* notice : haolive_licenses) std::cout << notice; return 0; }
             if (arg == "--list-backends") { std::cout << Json(haolive::available_backends()).dump() << '\n'; return 0; }
             if (i + 1 == argc) throw std::invalid_argument("missing value for " + arg);
             std::string value = argv[++i];
