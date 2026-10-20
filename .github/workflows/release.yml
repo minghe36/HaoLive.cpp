@@ -95,6 +95,17 @@ jobs:
         env:
           BUILD_VARIANT: ${{ matrix.variant }}
         run: ./scripts/build-windows.ps1 -Architecture x64 -Variant $env:BUILD_VARIANT -Jobs 2
+      - name: Preserve CUDA build diagnostics
+        if: failure() && matrix.variant == 'cuda126'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: diagnostics-${{ matrix.target }}
+          path: |
+            build-release/windows-x64-cuda126/bin/*.exe
+            build-release/windows-x64-cuda126/Testing/Temporary/*
+            build-release/windows-x64-cuda126/CMakeFiles/CMakeConfigureLog.yaml
+          retention-days: 7
+          if-no-files-found: warn
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-${{ matrix.target }}

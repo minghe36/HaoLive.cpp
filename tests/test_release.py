@@ -147,6 +147,26 @@ class BuildTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing"):
                 build.cuda_runtime_files(root)
 
+    def test_cuda_preflight_fails_before_compilation(self):
+        with patch.object(build.sys, "platform", "win32"), \
+                patch.dict(build.os.environ, {"CUDA_PATH": "missing-sdk"}), \
+                patch.object(build, "cuda_runtime_files", side_effect=ValueError("missing license")), \
+                patch.object(build.subprocess, "run") as run:
+            with self.assertRaisesRegex(ValueError, "missing license"):
+                build.main(["--platform", "windows", "--arch", "x64", "--variant", "cuda126"])
+            run.assert_not_called()
+
+    def test_minimal_cuda_sdk_uses_bundled_original_license(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "bin").mkdir()
+            (root / "version.json").write_text(json.dumps({"cuda": {"version": "12.6.3"}}))
+            for name in ("cublas64_12.dll", "cublasLt64_12.dll"):
+                (root / "bin" / name).write_bytes(b"fixture")
+            files = build.cuda_runtime_files(root)
+            self.assertEqual(files["CUDA-LICENSE.txt"], build.ROOT / "third_party/licenses/CUDA-12.6.txt")
+            self.assertIn("NVIDIA", files["CUDA-LICENSE.txt"].read_text())
+
     def test_gpu_audit_checks_compiled_backend_without_requiring_gpu(self):
         with tempfile.TemporaryDirectory() as temp:
             binary = Path(temp) / "haolive-server.exe"

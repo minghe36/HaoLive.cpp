@@ -139,7 +139,8 @@ def cuda_runtime_files(root):
     for required in ("cublas64_12.dll", "cublasLt64_12.dll"):
         if required not in files:
             raise ValueError("CUDA runtime missing " + required)
-    candidates = [root / "EULA.txt", root / "doc" / "EULA.txt"]
+    candidates = [root / "EULA.txt", root / "doc" / "EULA.txt",
+                  ROOT / "third_party" / "licenses" / "CUDA-12.6.txt"]
     license_path = next((p for p in candidates if p.is_file()), None)
     if not license_path:
         raise ValueError("CUDA Toolkit EULA.txt is required for redistribution")
@@ -169,17 +170,17 @@ def main(argv=None):
     expected_host = "darwin" if args.platform == "macos" else "win32"
     if sys.platform != expected_host:
         raise ValueError("run this platform build on its native operating system")
-    for command in plan:
-        subprocess.run(command, cwd=ROOT, check=True)
-    binary = directory / "bin" / "haolive-server"
-    if args.platform == "windows":
-        binary = directory / ("bin/haolive-server.exe" if args.variant == "cuda126" else "bin/Release/haolive-server.exe")
     extras = {}
     if args.variant == "cuda126":
         cuda_root = os.environ.get("CUDA_PATH", "")
         if not cuda_root:
             raise ValueError("CUDA_PATH must point to CUDA Toolkit 12.6")
         extras = cuda_runtime_files(cuda_root)
+    for command in plan:
+        subprocess.run(command, cwd=ROOT, check=True)
+    binary = directory / "bin" / "haolive-server"
+    if args.platform == "windows":
+        binary = directory / ("bin/haolive-server.exe" if args.variant == "cuda126" else "bin/Release/haolive-server.exe")
     # Verify a distribution-shaped copy with SDK directories removed from PATH.
     with tempfile.TemporaryDirectory(prefix="haolive-package-") as temp:
         staged = Path(temp) / binary.name

@@ -79,3 +79,7 @@ https://github.com/machinezone/IXWebSocket, v11.4.6, commit
 `2efe037c9cc96fd536774f17bdb5215161ee5087`, MIT.
 Full license: `third_party/ixwebsocket/LICENSE`. Local patches and static
 loopback-only build configuration are recorded in `third_party/ixwebsocket/HAOLIVE.md`.
+
+## NVIDIA CUDA 12.6 redistributables (Windows CUDA package only)
+
+The original CUDA license is retained at `third_party/licenses/CUDA-12.6.txt` and packaged as `CUDA-LICENSE.txt`. Source: NVIDIA CUDA 12.6.3 [redistribution manifest](https://developer.download.nvidia.com/compute/cuda/redist/redistrib_12.6.3.json), `cuda_cudart` 12.6.77 Windows archive (SHA-256 `7a313bc0c93b1a50bb03aa9783a199ae70c3b66e2d8084da65e8254a8577b925`), original archive member `cuda_cudart-windows-x86_64-12.6.77-archive/LICENSE`. CUDA DLLs remain subject to NVIDIA's terms.
