@@ -32,12 +32,13 @@ def build_plan(root, directory, system, arch, jobs, variant="cpu"):
                  "-DPython3_EXECUTABLE=" + sys.executable]
     if system == "macos":
         configure += ["-DCMAKE_OSX_ARCHITECTURES=" + arch, "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0"]
+    elif variant == "cuda126":
+        configure += ["-G", "Ninja", "-DCMAKE_C_COMPILER=cl", "-DCMAKE_CXX_COMPILER=cl"]
     else:
         configure += ["-G", "Visual Studio 17 2022", "-A", "x64"]
     if variant == "cuda126":
         configure += ["-DHAOLIVE_CUDA_126=ON", "-DGGML_STATIC=ON", "-DGGML_CUDA_NO_VMM=ON",
-                      "-DCMAKE_CUDA_ARCHITECTURES=75-real;80-virtual;86-real;89-real",
-                      "-T", "v142"]
+                      "-DCMAKE_CUDA_ARCHITECTURES=75-real;80-virtual;86-real;89-real"]
     if arch in {"x64", "x86_64"}:
         configure += ["-DGGML_SSE42=ON", "-DGGML_AVX=ON", "-DGGML_AVX2=ON", "-DGGML_FMA=ON", "-DGGML_F16C=ON", "-DGGML_BMI2=ON"]
     return [configure,
@@ -94,11 +95,11 @@ def _pe_imports(data):
     raise ValueError("unbounded PE import table")
 
 
-def audit(binary, system, arch, number, variant="cpu", runtime_files=None):
+def audit(binary, system, arch, number, variant="cpu", runtime_files=None, probe_devices=True):
     actual = subprocess.check_output([str(binary), "--version"], text=True, timeout=30).strip()
     if actual != "haolive-server " + number:
         raise ValueError("binary version does not match VERSION: " + actual)
-    backends = json.loads(subprocess.check_output([str(binary), "--list-backends"], text=True, timeout=120))
+    backends = json.loads(subprocess.check_output([str(binary), "--list-backends"], text=True, timeout=120)) if probe_devices else ["cpu"]
     expected = {"cpu", "metal"} if system == "macos" else {"cpu"} | ({"vulkan"} if variant == "vulkan" else {"cuda"} if variant == "cuda126" else set())
     compiled = json.loads(subprocess.check_output([str(binary), "--list-compiled-backends"], text=True, timeout=30))
     if set(compiled) != expected:
@@ -155,6 +156,7 @@ def main(argv=None):
     parser.add_argument("--output-dir", type=Path, default=ROOT / "dist")
     parser.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 8))
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--skip-device-probe", action="store_true", help="Skip GPU enumeration on virtual CI hosts; compiled backends and CTest remain required")
     args = parser.parse_args(argv)
     arch = args.arch or ("arm64" if platform.machine().lower() in {"arm64", "aarch64"} else "x86_64" if args.platform == "macos" else "x64")
     number = read_version(ROOT)
@@ -171,7 +173,7 @@ def main(argv=None):
         subprocess.run(command, cwd=ROOT, check=True)
     binary = directory / "bin" / "haolive-server"
     if args.platform == "windows":
-        binary = directory / "bin/Release/haolive-server.exe"
+        binary = directory / ("bin/haolive-server.exe" if args.variant == "cuda126" else "bin/Release/haolive-server.exe")
     extras = {}
     if args.variant == "cuda126":
         cuda_root = os.environ.get("CUDA_PATH", "")
@@ -190,7 +192,7 @@ def main(argv=None):
             os.environ["PATH"] = os.pathsep.join([str(windows / "System32"), str(windows)])
         try:
             audit(staged, args.platform, arch, number, args.variant,
-                  {name: Path(temp) / name for name in extras})
+                  {name: Path(temp) / name for name in extras}, not args.skip_device_probe)
         finally:
             if args.platform == "windows":
                 os.environ["PATH"] = original_path

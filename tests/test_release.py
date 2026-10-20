@@ -120,8 +120,15 @@ class BuildTests(unittest.TestCase):
         cuda = build.build_plan(Path(), Path(), "windows", "x64", 2, "cuda126")
         self.assertIn("-DHAOLIVE_CUDA_126=ON", cuda[0])
         self.assertIn("-DGGML_STATIC=ON", cuda[0])
+        self.assertIn("Ninja", cuda[0])
+        self.assertNotIn("-A", cuda[0])
         with self.assertRaises(ValueError):
             build.build_plan(Path(), Path(), "macos", "arm64", 2, "vulkan")
+
+    def test_virtual_macos_audit_skips_device_probe_but_checks_compiled_backends(self):
+        with patch.object(build.subprocess, "check_output", side_effect=[
+                "haolive-server 1.2.3", '["cpu","metal"]', "x86_64", "server:\\n /usr/lib/libSystem.B.dylib"]):
+            build.audit(Path("server"), "macos", "x86_64", "1.2.3", probe_devices=False)
 
     def test_cuda_runtime_requires_126_and_complete_redistributables(self):
         with tempfile.TemporaryDirectory() as temp:

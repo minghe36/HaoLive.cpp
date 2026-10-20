@@ -81,14 +81,14 @@ jobs:
         with:
           cuda: "12.6.3"
           method: network
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust"]'
           log-file-suffix: windows-x64-cuda126.txt
       - name: Build macOS
         if: runner.os == 'macOS'
         shell: bash
         env:
           BUILD_ARCH: ${{ matrix.arch }}
-        run: ./scripts/build-macos.sh --arch "$BUILD_ARCH"
+        run: ./scripts/build-macos.sh --arch "$BUILD_ARCH" --skip-device-probe
       - name: Build Windows
         if: runner.os == 'Windows'
         shell: pwsh
