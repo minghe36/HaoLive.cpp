@@ -1,0 +1,3 @@
+#pragma once
+// License text stays available when distributing the executable alone.
+inline constexpr const char* haolive_licenses = R"HLNOTICE(@HAOLIVE_LICENSES@)HLNOTICE";

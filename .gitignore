@@ -1,0 +1,12 @@
+/build*/
+/models/
+__pycache__/
+*.wav
+.DS_Store
+
+/dist/
+
+# Local benchmark inputs and generated measurements
+/bench/case/
+/bench/prepared/
+/bench/results/
