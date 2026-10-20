@@ -87,6 +87,7 @@ void help() {
                  "       [--vad-model FIRERED.gguf] (also works without --model)\n"
                  "       [--parent-pid PID] (POSIX host lifecycle; --port 0 selects a free port)\n"
                  "       haolive-server --list-backends\n"
+                 "       haolive-server --list-compiled-backends\n"
                  "       haolive-server --licenses\n"
                  "       haolive-server --version\n";
 }
@@ -101,6 +102,19 @@ int main(int argc, char** argv) {
             if (arg == "--help" || arg == "-h") { help(); return 0; }
             if (arg == "--version") { std::cout << "haolive-server " << HAOLIVE_VERSION << '\n'; return 0; }
             if (arg == "--licenses") { for (const auto* notice : haolive_licenses) std::cout << notice; return 0; }
+            if (arg == "--list-compiled-backends") {
+                Json backends = {"cpu"};
+#if HAOLIVE_HAS_METAL
+                backends.push_back("metal");
+#endif
+#if HAOLIVE_HAS_VULKAN
+                backends.push_back("vulkan");
+#endif
+#if HAOLIVE_HAS_CUDA
+                backends.push_back("cuda");
+#endif
+                std::cout << backends.dump() << '\n'; return 0;
+            }
             if (arg == "--list-backends") { std::cout << Json(haolive::available_backends()).dump() << '\n'; return 0; }
             if (i + 1 == argc) throw std::invalid_argument("missing value for " + arg);
             std::string value = argv[++i];

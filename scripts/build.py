@@ -5,30 +5,39 @@ import json
 import os
 from pathlib import Path
 import platform
+import shutil
+import tempfile
 import struct
 import subprocess
 import sys
 
-from release_common import package, read_version
+from release_common import CUDA_DLLS, package, read_version
 
 ROOT = Path(__file__).resolve().parents[1]
 SYSTEM_DLLS = set("kernel32 user32 advapi32 bcrypt crypt32 ntdll ws2_32 wsock32 iphlpapi secur32 ole32 oleaut32 shell32 shlwapi winmm version normaliz rpcrt4 dbghelp psapi setupapi mswsock ucrtbase msvcrt comdlg32 gdi32".split())
 
 
-def build_plan(root, directory, system, arch, jobs):
+def build_plan(root, directory, system, arch, jobs, variant="cpu"):
+    if variant not in {"cpu", "vulkan", "cuda126"} or (system != "windows" and variant != "cpu"):
+        raise ValueError("unsupported backend variant for platform")
     if jobs < 1:
         raise ValueError("jobs must be positive")
     if (system, arch) not in {("macos", "arm64"), ("macos", "x86_64"), ("windows", "x64")}:
         raise ValueError("unsupported platform/architecture")
     configure = ["cmake", "-S", str(root), "-B", str(directory),
                  "-DCMAKE_BUILD_TYPE=Release", "-DHAOLIVE_BUILD_TESTS=ON",
-                 "-DHAOLIVE_BUILD_SHARED=OFF", "-DHAOLIVE_VULKAN=OFF", "-DHAOLIVE_CUDA=OFF",
+                 "-DHAOLIVE_BUILD_SHARED=OFF", "-DHAOLIVE_VULKAN=" + ("ON" if variant == "vulkan" else "OFF"),
+                 "-DHAOLIVE_CUDA=" + ("ON" if variant == "cuda126" else "OFF"),
                  "-DHAOLIVE_METAL=" + ("ON" if system == "macos" else "OFF"),
                  "-DPython3_EXECUTABLE=" + sys.executable]
     if system == "macos":
         configure += ["-DCMAKE_OSX_ARCHITECTURES=" + arch, "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0"]
     else:
         configure += ["-G", "Visual Studio 17 2022", "-A", "x64"]
+    if variant == "cuda126":
+        configure += ["-DHAOLIVE_CUDA_126=ON", "-DGGML_STATIC=ON", "-DGGML_CUDA_NO_VMM=ON",
+                      "-DCMAKE_CUDA_ARCHITECTURES=75-real;80-virtual;86-real;89-real",
+                      "-T", "v142"]
     if arch in {"x64", "x86_64"}:
         configure += ["-DGGML_SSE42=ON", "-DGGML_AVX=ON", "-DGGML_AVX2=ON", "-DGGML_FMA=ON", "-DGGML_F16C=ON", "-DGGML_BMI2=ON"]
     return [configure,
@@ -85,13 +94,16 @@ def _pe_imports(data):
     raise ValueError("unbounded PE import table")
 
 
-def audit(binary, system, arch, number):
+def audit(binary, system, arch, number, variant="cpu", runtime_files=None):
     actual = subprocess.check_output([str(binary), "--version"], text=True, timeout=30).strip()
     if actual != "haolive-server " + number:
         raise ValueError("binary version does not match VERSION: " + actual)
     backends = json.loads(subprocess.check_output([str(binary), "--list-backends"], text=True, timeout=120))
-    expected = {"cpu", "metal"} if system == "macos" else {"cpu"}
-    if "cpu" not in backends or set(backends) - expected or (system == "windows" and set(backends) != expected):
+    expected = {"cpu", "metal"} if system == "macos" else {"cpu"} | ({"vulkan"} if variant == "vulkan" else {"cuda"} if variant == "cuda126" else set())
+    compiled = json.loads(subprocess.check_output([str(binary), "--list-compiled-backends"], text=True, timeout=30))
+    if set(compiled) != expected:
+        raise ValueError("compiled backends do not match package variant: " + repr(compiled))
+    if "cpu" not in backends or set(backends) - expected:
         raise ValueError("unexpected backends: " + repr(backends))
     if system == "macos":
         built_arch = subprocess.check_output(["lipo", "-archs", str(binary)], text=True).strip()
@@ -101,16 +113,44 @@ def audit(binary, system, arch, number):
         if any(not line.strip().startswith(("/usr/lib/", "/System/Library/")) for line in dependencies):
             raise ValueError("server has non-system dynamic dependencies")
     else:
-        for name in pe_imports(binary.read_bytes()):
-            stem = name.removesuffix(".dll")
-            if not name.endswith(".dll") or not (stem in SYSTEM_DLLS or stem.startswith(("api-ms-win-", "ext-ms-win-"))):
-                raise ValueError("non-system DLL dependency: " + name)
+        files = {"haolive-server.exe": binary, **(runtime_files or {})}
+        packaged = {name.lower() for name in files}
+        driver = {"vulkan-1.dll"} if variant == "vulkan" else set()
+        for source in files.values():
+            if source.suffix.lower() not in {".dll", ".exe"}:
+                continue
+            for name in pe_imports(source.read_bytes()):
+                stem = name.removesuffix(".dll")
+                if not name.endswith(".dll") or not (name in packaged or name in driver or stem in SYSTEM_DLLS or stem.startswith(("api-ms-win-", "ext-ms-win-"))):
+                    raise ValueError("non-system DLL dependency: " + name)
+
+
+def cuda_runtime_files(root):
+    root = Path(root)
+    metadata = json.loads((root / "version.json").read_text(encoding="utf-8"))
+    if not metadata["cuda"]["version"].startswith("12.6."):
+        raise ValueError("cuda126 requires CUDA Toolkit 12.6.x")
+    files = {}
+    for name in CUDA_DLLS:
+        matches = [p for p in (root / "bin").glob("*.dll") if p.name.lower() == name.lower()]
+        if matches:
+            files[name] = matches[0]
+    for required in ("cublas64_12.dll", "cublasLt64_12.dll"):
+        if required not in files:
+            raise ValueError("CUDA runtime missing " + required)
+    candidates = [root / "EULA.txt", root / "doc" / "EULA.txt"]
+    license_path = next((p for p in candidates if p.is_file()), None)
+    if not license_path:
+        raise ValueError("CUDA Toolkit EULA.txt is required for redistribution")
+    files["CUDA-LICENSE.txt"] = license_path
+    return files
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform", required=True, choices=["macos", "windows"])
     parser.add_argument("--arch")
+    parser.add_argument("--variant", choices=["cpu", "vulkan", "cuda126"], default="cpu")
     parser.add_argument("--build-dir", type=Path)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "dist")
     parser.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 8))
@@ -118,9 +158,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     arch = args.arch or ("arm64" if platform.machine().lower() in {"arm64", "aarch64"} else "x86_64" if args.platform == "macos" else "x64")
     number = read_version(ROOT)
-    target = f"{args.platform}-{arch}"
+    target = f"{args.platform}-{arch}" + ("-" + args.variant if args.platform == "windows" else "")
     directory = (args.build_dir or ROOT / "build-release" / target).resolve()
-    plan = build_plan(ROOT, directory, args.platform, arch, args.jobs)
+    plan = build_plan(ROOT, directory, args.platform, arch, args.jobs, args.variant)
     if args.dry_run:
         print(json.dumps(plan, indent=2))
         return 0
@@ -132,8 +172,29 @@ def main(argv=None):
     binary = directory / "bin" / "haolive-server"
     if args.platform == "windows":
         binary = directory / "bin/Release/haolive-server.exe"
-    audit(binary, args.platform, arch, number)
-    archive = package(binary, args.output_dir.resolve(), number, target)
+    extras = {}
+    if args.variant == "cuda126":
+        cuda_root = os.environ.get("CUDA_PATH", "")
+        if not cuda_root:
+            raise ValueError("CUDA_PATH must point to CUDA Toolkit 12.6")
+        extras = cuda_runtime_files(cuda_root)
+    # Verify a distribution-shaped copy with SDK directories removed from PATH.
+    with tempfile.TemporaryDirectory(prefix="haolive-package-") as temp:
+        staged = Path(temp) / binary.name
+        shutil.copy2(binary, staged)
+        for name, source in extras.items():
+            shutil.copy2(source, Path(temp) / name)
+        if args.platform == "windows":
+            original_path = os.environ.get("PATH", "")
+            windows = Path(os.environ["SystemRoot"])
+            os.environ["PATH"] = os.pathsep.join([str(windows / "System32"), str(windows)])
+        try:
+            audit(staged, args.platform, arch, number, args.variant,
+                  {name: Path(temp) / name for name in extras})
+        finally:
+            if args.platform == "windows":
+                os.environ["PATH"] = original_path
+    archive = package(binary, args.output_dir.resolve(), number, target, extras)
     print("Release asset: " + str(archive))
     return 0
 

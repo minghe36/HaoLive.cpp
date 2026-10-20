@@ -6,9 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing annotated version tag to retry"
+        description: "Annotated release tag, or branch for build-only validation"
         required: true
         type: string
+      build_only:
+        description: "Build and verify artifacts without publishing"
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -31,24 +35,54 @@ jobs:
             target: macos-x86_64
             arch: x86_64
           - os: windows-2022
-            target: windows-x64
+            target: windows-x64-cpu
             arch: x64
+            variant: cpu
+          - os: windows-2022
+            target: windows-x64-vulkan
+            arch: x64
+            variant: vulkan
+          - os: windows-2022
+            target: windows-x64-cuda126
+            arch: x64
+            variant: cuda126
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 120
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: refs/tags/${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.12"
       - name: Validate version and release notes
+        if: inputs.build_only != true
         shell: bash
         run: python scripts/release.py validate --tag "$RELEASE_TAG"
+      - name: Install Vulkan SDK
+        if: matrix.variant == 'vulkan'
+        shell: pwsh
+        run: |
+          $sdkVersion = "1.4.335.0"
+          $installer = Join-Path $env:RUNNER_TEMP "vulkan-sdk.exe"
+          $sdkRoot = Join-Path $env:RUNNER_TEMP "VulkanSDK"
+          Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$sdkVersion/windows/vulkansdk-windows-X64-$sdkVersion.exe" -OutFile $installer
+          $install = Start-Process $installer -ArgumentList @("--root", $sdkRoot, "--accept-licenses", "--default-answer", "--confirm-command", "install") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Vulkan SDK install failed: $($install.ExitCode)" }
+          "VULKAN_SDK=$sdkRoot" | Out-File $env:GITHUB_ENV -Append
+          "$sdkRoot\Bin" | Out-File $env:GITHUB_PATH -Append
+      - name: Install CUDA 12.6
+        if: matrix.variant == 'cuda126'
+        uses: Jimver/cuda-toolkit@b8bf9c6c28f8a92fbb04dcfcaee872e60c57462d
+        with:
+          cuda: "12.6.3"
+          method: network
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
+          log-file-suffix: windows-x64-cuda126.txt
       - name: Build macOS
         if: runner.os == 'macOS'
         shell: bash
@@ -58,7 +92,9 @@ jobs:
       - name: Build Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/build-windows.ps1 -Architecture x64
+        env:
+          BUILD_VARIANT: ${{ matrix.variant }}
+        run: ./scripts/build-windows.ps1 -Architecture x64 -Variant $env:BUILD_VARIANT -Jobs 2
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-${{ matrix.target }}
@@ -68,6 +104,7 @@ jobs:
 
   publish:
     name: Publish verified assets
+    if: inputs.build_only != true
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -80,7 +117,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: refs/tags/${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065

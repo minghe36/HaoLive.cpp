@@ -19,6 +19,15 @@ class ServerDefaultsTests(unittest.TestCase):
         )
         self.assertIn("[--port 9797]", output)
 
+    @unittest.skipUnless(os.environ.get("HAOLIVE_TEST_SERVER"), "requires built server")
+    def test_compiled_backends_include_cpu_and_are_known(self):
+        compiled = json.loads(subprocess.check_output(
+            [os.environ["HAOLIVE_TEST_SERVER"], "--list-compiled-backends"],
+            encoding="utf-8", timeout=30))
+        self.assertIn("cpu", compiled)
+        self.assertEqual(len(compiled), len(set(compiled)))
+        self.assertLessEqual(set(compiled), {"cpu", "metal", "vulkan", "cuda"})
+
     def test_stream_example_connects_to_default_or_explicit_url(self):
         spec = importlib.util.spec_from_file_location(
             "stream_example", Path(__file__).resolve().parents[1] / "examples" / "stream.py"

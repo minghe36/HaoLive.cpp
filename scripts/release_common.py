@@ -5,7 +5,9 @@ import re
 import tarfile
 import zipfile
 
-TARGETS = ("macos-arm64", "macos-x86_64", "windows-x64")
+TARGETS = ("macos-arm64", "macos-x86_64", "windows-x64-cpu", "windows-x64-vulkan", "windows-x64-cuda126")
+CUDA_DLLS = frozenset({"cublas64_12.dll", "cublasLt64_12.dll", "cudart64_12.dll"})
+CUDA_REQUIRED = frozenset({"cublas64_12.dll", "cublasLt64_12.dll", "CUDA-LICENSE.txt"})
 
 
 def version(value):
@@ -38,10 +40,19 @@ def checksum(path):
     return digest.hexdigest()
 
 
-def package(binary, output, number, target):
+def package(binary, output, number, target, extras=None):
     binary, output = Path(binary), Path(output)
     if binary.is_symlink() or not binary.is_file() or binary.stat().st_size == 0:
         raise ValueError("missing or empty server binary")
+    extras = extras or {}
+    if extras and target != "windows-x64-cuda126":
+        raise ValueError("runtime extras are only allowed for CUDA packages")
+    if target == "windows-x64-cuda126" and (not CUDA_REQUIRED <= set(extras) or set(extras) - CUDA_DLLS - {"CUDA-LICENSE.txt"}):
+        raise ValueError("CUDA package requires approved runtime DLLs and license")
+    for name, source in extras.items():
+        source = Path(source)
+        if source.is_symlink() or not source.is_file() or not source.stat().st_size:
+            raise ValueError("missing runtime dependency: " + name)
     output.mkdir(parents=True, exist_ok=True)
     archive = output / asset_name(number, target)
     digest_file = archive.with_name(archive.name + ".sha256")
@@ -51,6 +62,8 @@ def package(binary, output, number, target):
     if target.startswith("windows"):
         with zipfile.ZipFile(archive, "x", compression=zipfile.ZIP_DEFLATED) as bundle:
             bundle.write(binary, name)
+            for extra, source in sorted(extras.items()):
+                bundle.write(source, extra)
     else:
         with tarfile.open(archive, "x:gz") as bundle:
             info = bundle.gettarinfo(str(binary), arcname=name)
@@ -69,7 +82,7 @@ def release_assets(directory, number):
     expected |= {name + ".sha256" for name in expected.copy()}
     files = {p.name: p for p in directory.iterdir() if p.is_file()}
     if set(files) != expected:
-        raise ValueError("release requires exactly all three platform archives and their checksums")
+        raise ValueError("release requires all five platform/backend archives and their checksums")
     for target in TARGETS:
         name = asset_name(number, target)
         archive = files[name]
@@ -81,11 +94,19 @@ def release_assets(directory, number):
         if target.startswith("windows"):
             with zipfile.ZipFile(archive) as bundle:
                 entries = bundle.infolist()
-                valid = len(entries) == 1 and entries[0].filename == binary and entries[0].file_size > 0
+                names = {entry.filename for entry in entries}
+                allowed = {binary}
+                required = {binary}
+                if target == "windows-x64-cuda126":
+                    allowed |= CUDA_DLLS | {"CUDA-LICENSE.txt"}
+                    required |= CUDA_REQUIRED
+                valid = (len(entries) == len(names) and required <= names <= allowed
+                         and all(entry.file_size > 0 and not entry.is_dir()
+                                 and (entry.external_attr >> 16) & 0o170000 != 0o120000 for entry in entries))
         else:
             with tarfile.open(archive) as bundle:
                 entries = bundle.getmembers()
                 valid = len(entries) == 1 and entries[0].name == binary and entries[0].isfile() and entries[0].size > 0 and bool(entries[0].mode & 0o111)
         if not valid:
-            raise ValueError("archive must contain only its executable: " + name)
+            raise ValueError("archive has unexpected or missing runtime files (only its executable for CPU/macOS/Vulkan): " + name)
     return [files[name] for name in sorted(files)]

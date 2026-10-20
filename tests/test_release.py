@@ -14,7 +14,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import build
 import release
-from release_common import TARGETS, asset_name, checksum, package, read_version, release_assets, version
+from release_common import CUDA_REQUIRED, TARGETS, asset_name, checksum, package, read_version, release_assets, version
 
 
 class AssetTests(unittest.TestCase):
@@ -29,20 +29,27 @@ class AssetTests(unittest.TestCase):
     def make_assets(self, root):
         binary = root / "binary"
         binary.write_bytes(b"executable-fixture")
+        extras = {}
+        for name in CUDA_REQUIRED:
+            source = root / name
+            source.write_bytes(b"runtime-fixture")
+            extras[name] = source
         for target in TARGETS:
-            package(binary, root / "assets", "1.2.3", target)
+            package(binary, root / "assets", "1.2.3", target,
+                    extras if target.endswith("cuda126") else None)
         return root / "assets"
 
     def test_archives_preserve_only_executable_and_checksums(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             assets = self.make_assets(root)
-            self.assertEqual(len(release_assets(assets, "1.2.3")), 6)
+            self.assertEqual(len(release_assets(assets, "1.2.3")), 10)
             for target in TARGETS:
                 path = assets / asset_name("1.2.3", target)
                 if target.startswith("windows"):
                     with zipfile.ZipFile(path) as bundle:
-                        self.assertEqual(bundle.namelist(), ["haolive-server.exe"])
+                        expected = {"haolive-server.exe"} | (CUDA_REQUIRED if target.endswith("cuda126") else set())
+                        self.assertEqual(set(bundle.namelist()), expected)
                         self.assertEqual(bundle.read("haolive-server.exe"), b"executable-fixture")
                 else:
                     with tarfile.open(path) as bundle:
@@ -63,7 +70,7 @@ class AssetTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release_assets(assets, "1.2.3")
             extra.unlink()
-            win = assets / asset_name("1.2.3", "windows-x64")
+            win = assets / asset_name("1.2.3", "windows-x64-cpu")
             with zipfile.ZipFile(win, "a") as bundle:
                 bundle.writestr("models/weight.gguf", b"not-a-release-binary")
             win.with_name(win.name + ".sha256").write_text(f"{checksum(win)}  {win.name}\n")
@@ -71,6 +78,22 @@ class AssetTests(unittest.TestCase):
                 release_assets(assets, "1.2.3")
             win.unlink()
             with self.assertRaises(ValueError):
+                release_assets(assets, "1.2.3")
+
+
+    def test_cuda_packages_reject_missing_runtime_or_extra_payloads(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            binary = root / "server"
+            binary.write_bytes(b"exe")
+            with self.assertRaisesRegex(ValueError, "runtime"):
+                package(binary, root / "assets", "1.2.3", "windows-x64-cuda126")
+            assets = self.make_assets(root)
+            cuda = assets / asset_name("1.2.3", "windows-x64-cuda126")
+            with zipfile.ZipFile(cuda, "a") as archive:
+                archive.writestr("../evil.dll", b"bad")
+            cuda.with_name(cuda.name + ".sha256").write_text(f"{checksum(cuda)}  {cuda.name}\n")
+            with self.assertRaisesRegex(ValueError, "runtime files"):
                 release_assets(assets, "1.2.3")
 
 
@@ -88,6 +111,44 @@ class BuildTests(unittest.TestCase):
             build.build_plan(Path(), Path(), "windows", "arm64", 4)
         with self.assertRaises(ValueError):
             build.build_plan(Path(), Path(), "macos", "arm64", 0)
+
+    def test_gpu_plans_enable_only_requested_backend(self):
+        for variant, enabled, disabled in [("vulkan", "VULKAN", "CUDA"), ("cuda126", "CUDA", "VULKAN")]:
+            plan = build.build_plan(Path("source"), Path("build"), "windows", "x64", 2, variant)
+            self.assertIn("-DHAOLIVE_" + enabled + "=ON", plan[0])
+            self.assertIn("-DHAOLIVE_" + disabled + "=OFF", plan[0])
+        cuda = build.build_plan(Path(), Path(), "windows", "x64", 2, "cuda126")
+        self.assertIn("-DHAOLIVE_CUDA_126=ON", cuda[0])
+        self.assertIn("-DGGML_STATIC=ON", cuda[0])
+        with self.assertRaises(ValueError):
+            build.build_plan(Path(), Path(), "macos", "arm64", 2, "vulkan")
+
+    def test_cuda_runtime_requires_126_and_complete_redistributables(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "bin").mkdir()
+            (root / "version.json").write_text(json.dumps({"cuda": {"version": "12.6.3"}}))
+            for name in ("cublas64_12.dll", "cublasLt64_12.dll"):
+                (root / "bin" / name).write_bytes(b"fixture")
+            (root / "EULA.txt").write_text("license")
+            self.assertEqual(set(build.cuda_runtime_files(root)), CUDA_REQUIRED)
+            (root / "version.json").write_text(json.dumps({"cuda": {"version": "12.8.0"}}))
+            with self.assertRaisesRegex(ValueError, "12.6"):
+                build.cuda_runtime_files(root)
+            (root / "version.json").write_text(json.dumps({"cuda": {"version": "12.6.3"}}))
+            (root / "bin" / "cublasLt64_12.dll").unlink()
+            with self.assertRaisesRegex(ValueError, "missing"):
+                build.cuda_runtime_files(root)
+
+    def test_gpu_audit_checks_compiled_backend_without_requiring_gpu(self):
+        with tempfile.TemporaryDirectory() as temp:
+            binary = Path(temp) / "haolive-server.exe"
+            binary.write_bytes(self.pe())
+            with patch.object(build.subprocess, "check_output", side_effect=["haolive-server 1.2.3", '["cpu"]', '["cpu","vulkan"]']):
+                build.audit(binary, "windows", "x64", "1.2.3", "vulkan")
+            with patch.object(build.subprocess, "check_output", side_effect=["haolive-server 1.2.3", '["cpu"]', '["cpu"]']):
+                with self.assertRaisesRegex(ValueError, "compiled backends"):
+                    build.audit(binary, "windows", "x64", "1.2.3", "vulkan")
 
     def pe(self, name=b"KERNEL32.dll"):
         data = bytearray(1024)
@@ -114,10 +175,10 @@ class BuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             binary = Path(temp) / "haolive-server.exe"
             binary.write_bytes(self.pe(b"WSOCK32.dll"))
-            with patch.object(build.subprocess, "check_output", side_effect=["haolive-server 1.2.3", '["cpu"]']):
+            with patch.object(build.subprocess, "check_output", side_effect=["haolive-server 1.2.3", '["cpu"]', '["cpu"]']):
                 build.audit(binary, "windows", "x64", "1.2.3")
             binary.write_bytes(self.pe(b"VCRUNTIME140.dll"))
-            with patch.object(build.subprocess, "check_output", side_effect=["haolive-server 1.2.3", '["cpu"]']):
+            with patch.object(build.subprocess, "check_output", side_effect=["haolive-server 1.2.3", '["cpu"]', '["cpu"]']):
                 with self.assertRaisesRegex(ValueError, "non-system DLL"):
                     build.audit(binary, "windows", "x64", "1.2.3")
 
@@ -235,8 +296,14 @@ class UploadTests(unittest.TestCase):
         binary = root / "binary"
         binary.write_bytes(b"server")
         self.directory = root / "assets"
+        extras = {}
+        for name in CUDA_REQUIRED:
+            source = root / name
+            source.write_bytes(b"runtime-fixture")
+            extras[name] = source
         for target in TARGETS:
-            package(binary, self.directory, "1.2.3", target)
+            package(binary, self.directory, "1.2.3", target,
+                    extras if target.endswith("cuda126") else None)
         self.notes = root / "notes.md"
         self.notes.write_text("# v1.2.3\n\nNotes\n")
         self.remote = {"draft": True, "html_url": "https://github.com/example/repo/releases/tag/v1.2.3", "assets": [
