@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("audio")
-    parser.add_argument("--url", default="http://127.0.0.1:8080")
+    parser.add_argument("--url", default="http://127.0.0.1:9797")
     parser.add_argument("--token", default="")
     parser.add_argument("--chunk-ms", type=int, default=160)
     args = parser.parse_args()

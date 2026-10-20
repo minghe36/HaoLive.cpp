@@ -43,7 +43,7 @@ so attention has an explicit dependency on the write.
 
 The Confucius prompt seeds `<asr_text>` directly. This avoids the checkpoint's
 early-EOS language-header path without an auxiliary language detector or a
-hardcoded input language. The session exposes revised full-text partials. The default step is 320 ms.
+hardcoded input language. The session exposes revised full-text partials. The default step is 160 ms.
 Partial generation yields after at most 32 new tokens (or a smaller configured
 token limit); finalization still uses the configured full budget and reports
 exhaustion. Chunk pipe delimiters never enter the next assistant prefix.

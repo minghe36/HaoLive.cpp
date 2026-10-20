@@ -82,7 +82,7 @@ int integer_arg(const std::string& value, int min, int max) {
 void help() {
     std::cout << "HaoLive.cpp 0.1.0\n"
                  "Usage: haolive-server --model MODEL.gguf [--backend cpu|metal|vulkan|cuda]\n"
-                 "       [--host 127.0.0.1] [--port 8080] [--threads 4] [--step-ms 160]\n"
+                 "       [--host 127.0.0.1] [--port 9797] [--threads 4] [--step-ms 160]\n"
                  "       [--max-audio-ms 30000] [--max-tokens 512] [--token SECRET]\n"
                  "       [--vad-model FIRERED.gguf] (also works without --model)\n"
                  "       [--parent-pid PID] (POSIX host lifecycle; --port 0 selects a free port)\n"
@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
     try {
         haolive::Options options;
         std::string host = "127.0.0.1", token, vad_path;
-        int port = 8080, parent_pid = 0;
+        int port = 9797, parent_pid = 0;
         for (int i = 1; i < argc; ++i) {
             std::string arg = argv[i];
             if (arg == "--help" || arg == "-h") { help(); return 0; }
