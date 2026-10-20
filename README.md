@@ -1,31 +1,33 @@
 # HaoLive.cpp
 
-**Lightweight, local ASR inference in a single executable.**
+**Lightweight, local ASR inference.**
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 A C++ engine dedicated to real-time ASR inference, only providing the most useful real-time ASR models. It has no dependency on binary programs, is small in size, easy to use, and offers low-latency local inference. Suitable for real-time subtitles, real-time translation, and other scenarios
 
-| Capability               | Included                                                                  |
-| ------------------------ | ------------------------------------------------------------------------- |
-| Recognition              | Four GGUF model adapters with partial and final transcripts               |
-| Transport                | Bidirectional WebSocket, HTTP sessions, optional token streaming over SSE |
-| Integration              | C++ API, C ABI, standalone server process                                 |
-| Voice activity detection | Independent CPU FireRed VAD                                               |
-| Distribution             | Single executable; model weights supplied separately                      |
-| Runtime dependencies     | OS libraries only; no Python, FFmpeg, ONNX Runtime or LibTorch            |
+| Capability               | Included                                                                                       |
+| ------------------------ | ---------------------------------------------------------------------------------------------- |
+| Recognition              | Four GGUF model adapters with partial and final transcripts                                    |
+| Transport                | Bidirectional WebSocket, HTTP sessions, optional token streaming over SSE                      |
+| Integration              | C++ API, C ABI, standalone server process                                                      |
+| Voice activity detection | Independent CPU FireRed VAD                                                                    |
+| Distribution             | CPU/macOS/Vulkan: single executable; CUDA: executable and runtime DLLs; external model weights |
+| Runtime dependencies     | No Python, FFmpeg, ONNX Runtime or LibTorch; GPU variants need a vendor driver                 |
 
 ## Download
 
-Get prebuilt binaries from [GitHub Releases](https://github.com/minghe36/HaoLive.cpp/releases/latest). Each archive contains one executable and has a separate SHA-256 checksum file.
+Get prebuilt binaries from [GitHub Releases](https://github.com/minghe36/HaoLive.cpp/releases/latest). Each archive has a separate SHA-256 checksum file. CPU, macOS and Vulkan packages contain one executable; CUDA packages also include the required NVIDIA runtime DLLs and license.
 
-| Platform            | Archive                                 | ASR backends | Requirements                               |
-| ------------------- | --------------------------------------- | ------------ | ------------------------------------------ |
-| macOS Apple Silicon | `HaoLive-<version>-macos-arm64.tar.gz`  | CPU, Metal   | macOS 13+                                  |
-| macOS Intel         | `HaoLive-<version>-macos-x86_64.tar.gz` | CPU, Metal   | macOS 13+; SSE4.2, AVX2, FMA, F16C, BMI2   |
-| Windows x64         | `HaoLive-<version>-windows-x64.zip`     | CPU          | x64 CPU with SSE4.2, AVX2, FMA, F16C, BMI2 |
+| Platform              | Archive                                     | ASR backends | Requirements                                         |
+| --------------------- | ------------------------------------------- | ------------ | ---------------------------------------------------- |
+| macOS Apple Silicon   | `HaoLive-<version>-macos-arm64.tar.gz`      | CPU, Metal   | macOS 13+                                            |
+| macOS Intel           | `HaoLive-<version>-macos-x86_64.tar.gz`     | CPU, Metal   | macOS 13+; SSE4.2, AVX2, FMA, F16C, BMI2             |
+| Windows x64 CPU       | `HaoLive-<version>-windows-x64-cpu.zip`     | CPU          | x64 CPU with SSE4.2, AVX2, FMA, F16C, BMI2           |
+| Windows x64 Vulkan    | `HaoLive-<version>-windows-x64-vulkan.zip`  | CPU, Vulkan  | Vulkan-capable GPU and vendor driver                 |
+| Windows x64 CUDA 12.6 | `HaoLive-<version>-windows-x64-cuda126.zip` | CPU, CUDA    | Supported NVIDIA GPU and CUDA 12.6-compatible driver |
 
-The Windows executable statically links the MSVC runtime. Metal shaders, the supported Moonshine tokenizer and third-party license texts are embedded. Model weights are not included.
+Windows executables statically link the MSVC runtime. Keep CUDA package DLLs beside the executable. Vulkan uses the loader supplied by the GPU driver. Metal shaders, the supported Moonshine tokenizer and third-party license texts are embedded. Model weights are not included.
 
 ## Quick start
 
@@ -124,7 +126,7 @@ Query `POST /v1/vad` for speech detection. See the [VAD API reference](docs/prot
 | `--token`           | None                 | Require `Authorization: Bearer <token>`                                       |
 | `--parent-pid`      | None                 | POSIX only: exit when the direct parent exits                                 |
 
-On supported macOS hardware, pass `--backend metal` to request GPU inference. An unavailable requested backend is an error; individual unsupported GPU operations may run on CPU. CUDA/Vulkan build switches exist, but those backends are not validated by the current release workflow.
+On supported macOS hardware, pass `--backend metal` to request GPU inference. An unavailable requested backend is an error; individual unsupported GPU operations may run on CPU. Windows GPU variants are compiled in CI, which has no physical GPU for inference validation. `--list-compiled-backends` reports included backends; `--list-backends` reports devices available on this host. CUDA 12.6 includes SM 75/86/89 native code and SM 80 PTX for forward JIT compatibility; newer GPUs require separate validation.
 
 ## APIs
 
@@ -183,11 +185,13 @@ Response fields, SSE events, VAD examples and process handshakes: [protocol refe
 
 Dependencies are vendored and pinned; model files remain external. Release scripts configure, compile, run CTest, audit the binary, and write archives plus checksums to `dist/`.
 
-| Target      | Prerequisites                                           | Build command                                   |
-| ----------- | ------------------------------------------------------- | ----------------------------------------------- |
-| macOS arm64 | CMake 3.24+, Python 3.10+, Xcode Command Line Tools     | `./scripts/build-macos.sh --arch arm64`         |
-| macOS Intel | Same; target architecture must be runnable for tests    | `./scripts/build-macos.sh --arch x86_64`        |
-| Windows x64 | CMake 3.24+, Python 3.10+, Visual Studio 2022 C++ tools | `./scripts/build-windows.ps1 -Architecture x64` |
+| Target      | Prerequisites                                           | Build command                                                |
+| ----------- | ------------------------------------------------------- | ------------------------------------------------------------ |
+| macOS arm64 | CMake 3.24+, Python 3.10+, Xcode Command Line Tools     | `./scripts/build-macos.sh --arch arm64`                      |
+| macOS Intel | Same; target architecture must be runnable for tests    | `./scripts/build-macos.sh --arch x86_64`                     |
+| Windows x64 | CMake 3.24+, Python 3.10+, Visual Studio 2022 C++ tools | `./scripts/build-windows.ps1 -Architecture x64 -Variant cpu` |
+
+For Windows GPU builds, use `-Variant vulkan` with the Vulkan SDK, or `-Variant cuda126` with CUDA Toolkit 12.6.x and the VS 2019 v142 toolset installed under Visual Studio 2022. Set `VULKAN_SDK` or `CUDA_PATH` to the actual SDK location.
 
 For a development build:
 
@@ -197,12 +201,12 @@ cmake --build build --config Release --parallel 4
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-| CMake switch                            | Purpose                                                            |
-| --------------------------------------- | ------------------------------------------------------------------ |
-| `HAOLIVE_METAL=ON/OFF`                  | Metal backend; enabled by default on macOS                         |
-| `HAOLIVE_VULKAN=ON` / `HAOLIVE_CUDA=ON` | Optional backends requiring their SDK/toolkit; disabled by default |
-| `HAOLIVE_BUILD_SHARED=ON`               | Build an optional C ABI shared library; server remains independent |
-| `HAOLIVE_BUILD_TESTS=ON/OFF`            | Enable or disable test targets                                     |
+| CMake switch                            | Purpose                                                                                |
+| --------------------------------------- | -------------------------------------------------------------------------------------- |
+| `HAOLIVE_METAL=ON/OFF`                  | Metal backend; enabled by default on macOS                                             |
+| `HAOLIVE_VULKAN=ON` / `HAOLIVE_CUDA=ON` | GPU backends requiring their SDK/toolkit; enabled by the corresponding Windows variant |
+| `HAOLIVE_BUILD_SHARED=ON`               | Build an optional C ABI shared library; server remains independent                     |
+| `HAOLIVE_BUILD_TESTS=ON/OFF`            | Enable or disable test targets                                                         |
 
 Static library: `libhaolive.a` / `haolive.lib`. Link through CMake `add_subdirectory(...)` and `target_link_libraries(your_app PRIVATE haolive)`. The engine must outlive C++ sessions; C ABI sessions retain engine ownership. Calls on one engine are serialized, and sessions keep independent utterance state.
 

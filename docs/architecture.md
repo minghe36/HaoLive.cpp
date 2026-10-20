@@ -104,9 +104,12 @@ every run. Automatic language prompting uses the model's own `auto` table
 entry, followed by prompt MLP, encoder/predictor projections and greedy RNN-T.
 No LID model or reference runtime is loaded.
 
-The server statically links all third-party code; Metal kernels, Moonshine
-vocabulary and license text (`--licenses`) are embedded. Only OS frameworks
-and a caller-selected GGUF are needed at runtime. The optional shared C ABI
+The server statically links ggml, HTTP/JSON and WebSocket code; Metal kernels,
+Moonshine vocabulary and core license text (`--licenses`) are embedded.
+Windows CUDA packages also ship NVIDIA runtime DLLs and their license; Vulkan
+requires the loader from the GPU driver. Model weights remain caller-selected.
+`--list-compiled-backends` reports build capabilities without requiring GPU
+hardware; `--list-backends` enumerates devices visible on the current host. The optional shared C ABI
 library is an independent developer artifact, never a server dependency.
 
 Independent VAD is an additive API (`Vad::detect`, `hl_vad_detect`, HTTP

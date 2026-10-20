@@ -150,6 +150,24 @@ class BuildTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "compiled backends"):
                     build.audit(binary, "windows", "x64", "1.2.3", "vulkan")
 
+    def test_cuda_audit_checks_transitive_runtime_imports(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            binary = root / "haolive-server.exe"
+            binary.write_bytes(self.pe(b"cublas64_12.dll"))
+            cublas = root / "cublas64_12.dll"
+            cublas.write_bytes(self.pe(b"cublasLt64_12.dll"))
+            lt = root / "cublasLt64_12.dll"
+            lt.write_bytes(self.pe(b"KERNEL32.dll"))
+            extras = {cublas.name: cublas, lt.name: lt}
+            responses = ["haolive-server 1.2.3", '["cpu"]', '["cpu","cuda"]']
+            with patch.object(build.subprocess, "check_output", side_effect=responses):
+                build.audit(binary, "windows", "x64", "1.2.3", "cuda126", extras)
+            lt.write_bytes(self.pe(b"VCRUNTIME140.dll"))
+            with patch.object(build.subprocess, "check_output", side_effect=responses):
+                with self.assertRaisesRegex(ValueError, "VCRUNTIME140.dll".lower()):
+                    build.audit(binary, "windows", "x64", "1.2.3", "cuda126", extras)
+
     def pe(self, name=b"KERNEL32.dll"):
         data = bytearray(1024)
         data[:2] = b"MZ"

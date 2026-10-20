@@ -1,31 +1,33 @@
 # HaoLive.cpp
 
-**轻量、在本地运行的 ASR 推理引擎，单文件交付。**
+**轻量、在本地运行的 ASR 推理引擎。**
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 专注于实时 ASR 推理的 C++ 引擎，仅提供最实用的实时 ASR 模型。不依赖外部二进制程序，体积小、易于使用，提供低延迟的本地推理，适用于实时字幕、实时翻译等场景。
 
-| 能力         | 内容                                                        |
-| ------------ | ----------------------------------------------------------- |
-| 语音识别     | 四种 GGUF 模型适配器，支持中间文本与最终结果                |
-| 通信协议     | 双向 WebSocket、HTTP 会话、可选 SSE token 流                |
-| 集成方式     | C++ API、C ABI、独立 Server 进程                            |
-| 语音活动检测 | 独立运行的 CPU FireRed VAD                                  |
-| 交付形式     | 单个可执行文件，模型权重单独提供                            |
-| 运行依赖     | 仅操作系统库；无需 Python、FFmpeg、ONNX Runtime 或 LibTorch |
+| 能力         | 内容                                                              |
+| ------------ | ----------------------------------------------------------------- |
+| 语音识别     | 四种 GGUF 模型适配器，支持中间文本与最终结果                      |
+| 通信协议     | 双向 WebSocket、HTTP 会话、可选 SSE token 流                      |
+| 集成方式     | C++ API、C ABI、独立 Server 进程                                  |
+| 语音活动检测 | 独立运行的 CPU FireRed VAD                                        |
+| 交付形式     | CPU/macOS/Vulkan 为单文件，CUDA 附带运行库 DLL；模型权重单独提供  |
+| 运行依赖     | 无需 Python、FFmpeg、ONNX Runtime 或 LibTorch；GPU 版需要厂商驱动 |
 
 ## 下载
 
-从 [GitHub Releases](https://github.com/minghe36/HaoLive.cpp/releases/latest) 下载预编译程序。每个压缩包仅含一个可执行文件，并提供独立的 SHA-256 校验文件。
+从 [GitHub Releases](https://github.com/minghe36/HaoLive.cpp/releases/latest) 下载预编译程序。每个压缩包均提供独立的 SHA-256 校验文件。CPU、macOS 和 Vulkan 包只含可执行文件；CUDA 包另附必需的 NVIDIA 运行库 DLL 与许可证。
 
-| 平台                | 压缩包                                  | ASR 后端   | 运行要求                                      |
-| ------------------- | --------------------------------------- | ---------- | --------------------------------------------- |
-| macOS Apple Silicon | `HaoLive-<version>-macos-arm64.tar.gz`  | CPU、Metal | macOS 13+                                     |
-| macOS Intel         | `HaoLive-<version>-macos-x86_64.tar.gz` | CPU、Metal | macOS 13+；SSE4.2、AVX2、FMA、F16C、BMI2      |
-| Windows x64         | `HaoLive-<version>-windows-x64.zip`     | CPU        | 支持 SSE4.2、AVX2、FMA、F16C、BMI2 的 x64 CPU |
+| 平台                  | 压缩包                                      | ASR 后端     | 运行要求                                      |
+| --------------------- | ------------------------------------------- | ------------ | --------------------------------------------- |
+| macOS Apple Silicon   | `HaoLive-<version>-macos-arm64.tar.gz`      | CPU、Metal   | macOS 13+                                     |
+| macOS Intel           | `HaoLive-<version>-macos-x86_64.tar.gz`     | CPU、Metal   | macOS 13+；SSE4.2、AVX2、FMA、F16C、BMI2      |
+| Windows x64 CPU       | `HaoLive-<version>-windows-x64-cpu.zip`     | CPU          | 支持 SSE4.2、AVX2、FMA、F16C、BMI2 的 x64 CPU |
+| Windows x64 Vulkan    | `HaoLive-<version>-windows-x64-vulkan.zip`  | CPU + Vulkan | 支持 Vulkan 的 GPU 与厂商驱动                 |
+| Windows x64 CUDA 12.6 | `HaoLive-<version>-windows-x64-cuda126.zip` | CPU + CUDA   | 支持的 NVIDIA GPU 与兼容 CUDA 12.6 的驱动     |
 
-Windows 程序静态链接 MSVC 运行库。Metal shader、所支持的 Moonshine 词表和第三方许可文本均嵌入程序，模型权重不包含在压缩包中。
+Windows 程序静态链接 MSVC 运行库。CUDA 包中的 DLL 需与 exe 放在同一目录。Vulkan 使用 GPU 驱动提供的 loader。Metal shader、所支持的 Moonshine 词表和第三方许可文本均嵌入程序，模型权重不包含在压缩包中。
 
 ## 快速开始
 
@@ -124,7 +126,7 @@ FireRed VAD 使用 CPU 判断音频中是否存在语音，不生成转录文字
 | `--token`           | 无                   | 启用 `Authorization: Bearer <token>` 鉴权                    |
 | `--parent-pid`      | 无                   | 仅 POSIX：直接父进程退出后自动退出                           |
 
-macOS 硬件支持时，可传入 `--backend metal` 使用 GPU。请求的后端不可用会报错，个别 GPU 不支持的算子可调度到 CPU。项目提供 CUDA/Vulkan 构建开关，但当前发布流程未验证这两个后端。
+macOS 硬件支持时，可传入 `--backend metal` 使用 GPU。请求的后端不可用会报错，个别 GPU 不支持的算子可调度到 CPU。Windows GPU 版由 CI 编译，CI 无物理 GPU，不能代替真实 GPU 推理验收。`--list-compiled-backends` 查看已编译后端，`--list-backends` 查看本机可用设备。CUDA 12.6 包含 SM 75/86/89 原生代码和用于向前 JIT 兼容的 SM 80 PTX，较新 GPU 仍需单独验证。
 
 ## 接口
 
@@ -183,11 +185,13 @@ Confucius 的音频请求还支持 `stream=true`，通过 SSE 接收 token 进�
 
 依赖源码已固定版本并随仓库提供，模型文件单独下载。发布脚本依次配置、编译、运行 CTest、检查二进制依赖，并将压缩包及校验文件输出到 `dist/`。
 
-| 目标平台    | 前置环境                                               | 构建命令                                        |
-| ----------- | ------------------------------------------------------ | ----------------------------------------------- |
-| macOS arm64 | CMake 3.24+、Python 3.10+、Xcode Command Line Tools    | `./scripts/build-macos.sh --arch arm64`         |
-| macOS Intel | 同上；测试环境需能运行目标架构                         | `./scripts/build-macos.sh --arch x86_64`        |
-| Windows x64 | CMake 3.24+、Python 3.10+、Visual Studio 2022 C++ 工具 | `./scripts/build-windows.ps1 -Architecture x64` |
+| 目标平台    | 前置环境                                               | 构建命令                                                     |
+| ----------- | ------------------------------------------------------ | ------------------------------------------------------------ |
+| macOS arm64 | CMake 3.24+、Python 3.10+、Xcode Command Line Tools    | `./scripts/build-macos.sh --arch arm64`                      |
+| macOS Intel | 同上；测试环境需能运行目标架构                         | `./scripts/build-macos.sh --arch x86_64`                     |
+| Windows x64 | CMake 3.24+、Python 3.10+、Visual Studio 2022 C++ 工具 | `./scripts/build-windows.ps1 -Architecture x64 -Variant cpu` |
+
+Windows GPU 构建使用 `-Variant vulkan`（需 Vulkan SDK）或 `-Variant cuda126`（需 CUDA Toolkit 12.6.x，以及 Visual Studio 2022 中的 VS 2019 v142 工具集）。通过 `VULKAN_SDK` 或 `CUDA_PATH` 指定实际 SDK 位置。
 
 开发构建：
 
@@ -197,12 +201,12 @@ cmake --build build --config Release --parallel 4
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-| CMake 开关                              | 用途                                      |
-| --------------------------------------- | ----------------------------------------- |
-| `HAOLIVE_METAL=ON/OFF`                  | Metal 后端，macOS 默认开启                |
-| `HAOLIVE_VULKAN=ON` / `HAOLIVE_CUDA=ON` | 需要对应 SDK/toolkit 的可选后端，默认关闭 |
-| `HAOLIVE_BUILD_SHARED=ON`               | 构建可选的 C ABI 共享库，Server 不依赖它  |
-| `HAOLIVE_BUILD_TESTS=ON/OFF`            | 开启或关闭测试目标                        |
+| CMake 开关                              | 用途                                                  |
+| --------------------------------------- | ----------------------------------------------------- |
+| `HAOLIVE_METAL=ON/OFF`                  | Metal 后端，macOS 默认开启                            |
+| `HAOLIVE_VULKAN=ON` / `HAOLIVE_CUDA=ON` | 需要对应 SDK/toolkit；Windows 构建脚本按 variant 开启 |
+| `HAOLIVE_BUILD_SHARED=ON`               | 构建可选的 C ABI 共享库，Server 不依赖它              |
+| `HAOLIVE_BUILD_TESTS=ON/OFF`            | 开启或关闭测试目标                                    |
 
 静态库为 `libhaolive.a` / `haolive.lib`。通过 CMake `add_subdirectory(...)` 与 `target_link_libraries(your_app PRIVATE haolive)` 接入。C++ engine 必须比 session 存活更久；C ABI session 保留 engine 所有权。单个 engine 的推理串行执行，各会话的语句状态独立。
 
