@@ -173,7 +173,7 @@ def running_server(args, model, backend, log_path):
                "--step-ms", str(args.step_ms), "--max-tokens", str(args.max_tokens)]
     client = Client(port, args.timeout)
     client.connection.timeout = min(.5, args.timeout)
-    with log_path.open("w") as log:
+    with log_path.open("w", encoding="utf-8") as log:
         started = time.perf_counter()
         process = subprocess.Popen(command, stdout=log, stderr=log)
         try:
@@ -219,7 +219,7 @@ def file_identity(path, hash_content=False):
 
 def write_reports(output, report):
     temporary = output / "results.json.tmp"
-    temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
+    temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     temporary.replace(output / "results.json")
     fields = ["model", "backend", "audio", "mode", "stream_mode", "audio_s", "startup_ready_s",
               "runs", "wall_mean_s", "wall_p50_s", "wall_p95_s", "rtf_mean", "realtime_speed_mean",

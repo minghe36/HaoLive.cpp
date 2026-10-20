@@ -149,7 +149,7 @@ class GitReleaseTests(unittest.TestCase):
         self.original_output = release.output
 
     def git(self, *args):
-        return subprocess.check_output(["git", *args], cwd=self.root, text=True, stderr=subprocess.PIPE).strip()
+        return subprocess.check_output(["git", *args], cwd=self.root, text=True, encoding="utf-8", stderr=subprocess.PIPE).strip()
 
     def output(self, root, *args):
         if args[:4] == ("git", "remote", "get-url", "origin"):

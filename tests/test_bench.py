@@ -165,7 +165,7 @@ class InputOutputTests(unittest.TestCase):
             row = {"model": "有,逗号.gguf", "backend": "cpu", "runs": 2, "first_text_p50_s": None}
             report = {"summaries": [row], "text": "中文"}
             bench.write_reports(output, report)
-            self.assertEqual(json.loads((output / "results.json").read_text()), report)
+            self.assertEqual(json.loads((output / "results.json").read_text(encoding="utf-8")), report)
             with (output / "summary.csv").open(encoding="utf-8-sig", newline="") as file:
                 result = list(csv.DictReader(file))[0]
             self.assertEqual(result["model"], row["model"])
