@@ -165,7 +165,7 @@ class BuildTests(unittest.TestCase):
                 (root / "bin" / name).write_bytes(b"fixture")
             files = build.cuda_runtime_files(root)
             self.assertEqual(files["CUDA-LICENSE.txt"], build.ROOT / "third_party/licenses/CUDA-12.6.txt")
-            self.assertIn("NVIDIA", files["CUDA-LICENSE.txt"].read_text())
+            self.assertIn("NVIDIA", files["CUDA-LICENSE.txt"].read_text(encoding="utf-8"))
 
     def test_gpu_audit_checks_compiled_backend_without_requiring_gpu(self):
         with tempfile.TemporaryDirectory() as temp:
